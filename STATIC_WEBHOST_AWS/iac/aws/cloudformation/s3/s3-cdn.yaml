@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CloudFormation template to create a private S3 bucket with a
+  CloudFront distribution using Origin Access Control (OAC) and an existing ACM
+  certificate.
+
+Parameters:
+  environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment (dev/prod)
+
+  product:
+    Type: String
+    Default: impressico
+    Description: The name of the product, e.g., impressico
+
+  service:
+    Type: String
+    Default: static-webapp
+    Description: The service name, e.g., static-webapp
+
+  subdomain:
+    Type: String
+    Default: www
+    Description: The service name, e.g., www, test
+
+Resources:
+  devS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${environment}-${product}-bucket-${service}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  devS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref devS3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${environment}-${product}-bucket-${service}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${devCloudFrontDistribution}
+
+  devCloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${environment}-${product}-${service}-OAC
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  devCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Sub
+              - ${subdomain}.${abc}
+              - abc: !ImportValue dnsName
+          - !ImportValue dnsName
+        Origins:
+          - DomainName: !GetAtt devS3Bucket.RegionalDomainName
+            Id: S3Origin
+            OriginAccessControlId: !Ref devCloudFrontOriginAccessControl
+            S3OriginConfig: {}
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: allow-all
+          AllowedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        DefaultRootObject: index.html
+        ViewerCertificate:
+          AcmCertificateArn: !ImportValue acmId
+          SslSupportMethod: sni-only
+
+  devRoute53RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !ImportValue hostedId
+      Name: !Sub
+        - ${subdomain}.${abc}
+        - abc: !ImportValue dnsName
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt devCloudFrontDistribution.DomainName
+
+  createAdditionalRoute53RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !ImportValue hostedId
+      Name: !ImportValue dnsName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt devCloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  s3BucketName:
+    Value: !Ref devS3Bucket
+    Description: Name of the S3 bucket
+
+  cloudFrontDistributionId:
+    Value: !Ref devCloudFrontDistribution
+    Description: ID of the CloudFront distribution
+
+  cloudFrontDomainName:
+    Value: !GetAtt devCloudFrontDistribution.DomainName
+    Description: Domain name of the CloudFront distribution

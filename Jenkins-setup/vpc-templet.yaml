@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template to create a new VPC.
+
+Parameters:
+  environment:
+    Description: environment type
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+    ConstraintDescription: environment must be either Dev or Prod.
+
+Resources:
+  devVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${environment}-VPC"
+  devInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties: {}
+
+  devIgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref devVpc
+      InternetGatewayId: !Ref devInternetGateway
+
+  devSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref devVpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${environment}-Subnet"
+
+  devRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref devVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${environment}-RouteTable"
+
+  devDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref devRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref devInternetGateway
+
+  devSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref devSubnet
+      RouteTableId: !Ref devRouteTable
+Outputs:
+  vpcId:
+    Description: The VPC ID of the newly created VPC
+    Value: !Ref devVpc
+    Export:
+      Name: ${environment}-devVpc
+
+  subnetId:
+    Description: The Subnet ID of the newly created Subnet
+    Value: !Ref devSubnet
+    Export:
+      Name: ${environment}-devSubnet

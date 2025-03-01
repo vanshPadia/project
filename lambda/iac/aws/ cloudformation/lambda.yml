@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for Lambda function with VPC configuration and OpenSearch integration
+
+Parameters:
+  environment:
+    Description: Environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging 
+
+  indexPattern:
+    Type: String
+    Default: "filebeat02-*"
+    Description: Index pattern for OpenSearch
+
+Resources:
+  lambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for lambda access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-lambdaSecurityGroup
+
+  lambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: !Sub "${environment}-lambda-logs"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${environment}-lambda:*"
+        - PolicyName: !Sub "${environment}-lambda-network"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+
+  lambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${environment}-lambda"
+      Code: 
+        ZipFile: |
+          import json
+          import os
+          import requests
+          from datetime import datetime, timedelta
+
+          def lambda_handler(event, context):
+              # Your Lambda function code here
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Hello from Lambda!')
+              }
+      Description: Lambda function for log management with OpenSearch
+      MemorySize: 128
+      Timeout: 300
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt lambdaRole.Arn
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          INDEX_PATTERN: !Ref indexPattern
+          OPENSEARCH_ENDPOINT: !ImportValue DomainEndpoint
+
+      VpcConfig:
+        SecurityGroupIds:  
+          - !Ref lambdaSecurityGroup
+        SubnetIds:
+          - !ImportValue PublicSubnet1
+          - !ImportValue PublicSubnet2
+
+  eventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "Amazon_EventBridge_Rule_Target_${environment}_lambda"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${environment}-eventbridge-invoke-lambda"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt lambdaFunction.Arn
+
+  lambdaScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Schedule for Lambda function
+      ScheduleExpression: cron(30 6 * * ? *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt lambdaFunction.Arn
+          Id: "LambdaTarget"
+          RoleArn: !GetAtt eventBridgeRole.Arn
+
+  lambdaPermissionForEventBridge:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref lambdaFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt lambdaScheduleRule.Arn
+
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt lambdaFunction.Arn
+
+  SecurityGroupId:
+    Description: ID of the Lambda security group
+    Value: !Ref lambdaSecurityGroup

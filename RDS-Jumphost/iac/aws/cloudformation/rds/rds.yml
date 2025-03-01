@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation template to create an RDS MySQL database instance'
+
+Parameters:
+  environment:
+    Description: Environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  engine:
+    Description: RDS engine
+    Type: String
+    AllowedValues:
+      - mysql
+      
+  engineVersion:
+    Description: RDS engine version
+    Type: String
+    Default: "8.0.40"
+
+
+Mappings:
+  envToDBConfig:
+    dev:
+      InstanceClass: db.t3.micro
+      AllocatedStorage: 20
+    prod:
+      InstanceClass: db.t3.micro
+      AllocatedStorage: 20
+    staging:
+      InstanceClass: db.t3.micro
+      AllocatedStorage: 20
+
+Resources:
+  rdsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${environment}-rds-secret
+      Description: "Stores RDS credentials"
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 8
+        ExcludeCharacters: '"@/\'
+
+  dbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Created from the RDS Management Console
+      SubnetIds:
+        - !ImportValue privateSubnet1
+        - !ImportValue privateSubnet2
+      DBSubnetGroupName: 
+            !ImportValue privateSubnet1
+
+  dbInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${environment}-database   
+      DBInstanceClass: !FindInMap [envToDBConfig, !Ref environment, InstanceClass]
+      AllocatedStorage: !FindInMap [envToDBConfig, !Ref environment, AllocatedStorage]
+      Engine: !Ref engine
+      EngineVersion: !Ref engineVersion
+      MasterUsername: !Sub "{{resolve:secretsmanager:${environment}-rds-secret:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${environment}-rds-secret:SecretString:password}}"
+      DBSubnetGroupName: !Ref dbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue 
+            Fn::Sub: "${environment}-rdsSecurityGroup"
+      AvailabilityZone: !Sub ${AWS::Region}b
+      StorageType: gp3
+      PubliclyAccessible: false
+      DBParameterGroupName: !Ref dbParameterGroup
+      OptionGroupName: !Ref dbOptionGroup
+      NetworkType: IPV4
+      Port: 3306
+      BackupRetentionPeriod: 0
+
+  dbParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub "Custom Parameter Group for ${environment}"
+      Family: mysql8.0
+      Parameters:
+        max_connections: "1024"
+        sql_mode: "test"
+
+  dbOptionGroup:
+    Type: AWS::RDS::OptionGroup
+    Properties:
+      EngineName: mysql
+      MajorEngineVersion: "8.0"
+      OptionGroupDescription: !Sub "Custom Option Group for ${environment}"
+      Options:
+        - OptionName: "test"
+
+
+Outputs:
+  dbInstanceId:
+    Description: The RDS instance ID
+    Value: !Ref dbInstance
+    Export:
+      Name: !Sub "${environment}-dbInstance"

@@ -1,0 +1,62 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Deploy ECR and ECS with vpc') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS') {
+                        cfnUpdate(
+                            stack: "${env.environment}-${env.product}-${env.service}-cluster",
+                            file: 'iac/aws/cloudformation/wordpress.yml',
+                            params: [
+                                environment: env.environment,
+                                product: env.product,
+                                service: env.service                                
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Build and Push Docker Image') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS') {
+                        script {
+                            def ecrRepoUri = "${env.account_id}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.environment}-${env.service}-${env.product}-repository"
+                            def imageUri = "${ecrRepoUri}:latest"
+                            sh """
+                                aws ecr get-login-password --region ${env.AWS_REGION} | docker login --username AWS --password-stdin ${ecrRepoUri}
+                                docker build -t ${env.environment}-${env.service}-${env.product}-repository:latest . -f ./iac/aws/dockerfile/Dockerfile
+                                docker tag ${env.environment}-${env.service}-${env.product}-repository:latest ${imageUri}
+                                docker push ${imageUri}
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy ECS-Service') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS') {
+                        cfnUpdate(
+                            stack: "${env.environment}-${env.product}-${env.service}-service",
+                            file: 'iac/aws/cloudformation/ecs_service.yml',
+                            params: [
+                                environment: env.environment,
+                                product: env.product,
+                                service: env.service
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

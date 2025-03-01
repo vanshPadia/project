@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a jump host.
+
+Parameters:
+  environment:
+    Description: environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging    
+
+  keyName:    
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: String
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+Mappings:
+  envToinstanc:
+    dev:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+    prod:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+    staging:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+
+Resources:
+  rdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS allowing only jump host access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref jumpHostSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-rdsSecurityGroup
+
+  jumpHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for jump host allowing SSH and RDS access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !ImportValue vpcCidir
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: !ImportValue vpcCidir
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-jumpHostSecurityGroup
+
+  jumpHostInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !FindInMap [envToinstanc, !Ref environment, InstanceType]
+      ImageId: !FindInMap [envToinstanc, !Ref environment, ImageId]
+      SubnetId: !ImportValue publicSubnet1
+      SecurityGroupIds:
+        - !Ref jumpHostSecurityGroup
+      KeyName: !Ref keyName
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-jumpHost
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt update -y && apt install mysql-client -y
+
+Outputs:
+  rdsSecurityGroupId:
+    Description: The Security Group ID for RDS
+    Value: !Ref rdsSecurityGroup
+    Export:
+      Name: !Sub "${environment}-rdsSecurityGroup"
+
+  jumpHostSecurityGroupId:
+    Description: The Security Group ID for the jump host
+    Value: !Ref jumpHostSecurityGroup
+    Export:
+      Name: !Sub "${environment}-jumpHostSecurityGroup"
+
+  jumpHostInstanceId:
+    Description: The Instance ID of the jump host
+    Value: !Ref jumpHostInstance
+    Export:
+      Name: !Sub "${environment}-jumpHostInstance"

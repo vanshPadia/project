@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Template to create an ECS Cluster with a single subnet, ECR, and
+  other associated resources.
+
+Mappings:
+  envToAmi:
+    dev:
+      InstanceType: t2.micro
+      ImageId: ami-0fba866e13a3cf285
+
+    prod:
+      InstanceType: t2.micro
+      ImageId: ami-0fba866e13a3cf285
+
+    staging:
+      InstanceType: t2.micro
+      ImageId: ami-0fba866e13a3cf285
+
+Parameters:
+  environment:
+    Type: String
+    Description: Deployment environment (e.g., dev, prod, staging)
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  service:
+    Type: String
+    Description: Name of the service.
+    Default: wordpress
+
+  product:
+    Type: String
+    Description: Name of the product.
+    Default: ibs
+
+Resources:
+  vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-${product}-vpc
+
+  publicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref vpc
+      CidrBlock: !Select
+        - 1
+        - !Cidr
+          - !GetAtt vpc.CidrBlock
+          - 3
+          - 8 
+
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-${product}-subnet
+
+  internetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-${product}-igw
+
+  igwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref vpc
+      InternetGatewayId: !Ref internetGateway
+
+  routeTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-${product}-routetable
+
+  route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref routeTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref internetGateway
+
+  subnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref subnet
+      RouteTableId: !Ref routeTable
+
+  securityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS instances
+      VpcId: !Ref vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-${product}-ecs-sg
+
+  ecsInstanceRole:  
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${environment}-${service}-${product}-ecs-instance-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-${product}-ecs-instance-role
+
+  ecsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${environment}-${service}-${product}-ecs-instance-profile
+      Path: /
+      Roles:
+        - !Ref ecsInstanceRole
+
+  ecsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${environment}-${service}-${product}-ecs-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      ServiceConnectDefaults:
+        Namespace: devcluster
+
+  ecsLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    DependsOn: ecsCluster
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap 
+          - envToAmi
+          - !Ref environment
+          - ImageId
+        InstanceType: !FindInMap
+          - envToAmi
+          - !Ref environment
+          - InstanceType
+        SecurityGroupIds:
+          - !Ref securityGroup
+        IamInstanceProfile:
+          Name: !Ref ecsInstanceProfile
+        UserData: !Base64
+          Fn::Sub:
+            - |-
+              #!/bin/bash
+              echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config;
+            - ClusterName: !Ref ecsCluster
+
+  ecsAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: ecsCluster
+    Properties:
+      MinSize: "1"
+      MaxSize: "1"
+      DesiredCapacity: "1"
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ecsLaunchTemplate
+        Version: !GetAtt ecsLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref subnet
+      Tags:
+        - Key: Name
+          PropagateAtLaunch: true
+          Value: !Sub ${environment}-${service}-${product}-ecs-instance
+          
+  ecrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${environment}-${service}-${product}-repository
+
+Outputs:
+  vpcId:
+    Description: ID of the created VPC
+    Value: !Ref vpc
+    Export:
+      Name: 
+        'Fn::Sub': '${environment}-${service}-${product}-vpc-id'
+
+  subnetId:
+    Description: ID of the created Subnet
+    Value: !Ref subnet
+    Export:
+      Name:
+        'Fn::Sub': '${environment}-${service}-${product}-subnets'
+
+  ecsClusterName:
+    Description: Name of the ECS Cluster
+    Value: !Ref ecsCluster
+    Export:
+      Name:
+        'Fn::Sub': '${environment}-${service}-${product}-ecs-cluster-name'
+
+  ecrRepositoryURI:
+    Description: URI of the ECR Repository
+    Value: !GetAtt ecrRepository.RepositoryUri
+    Export:
+      Name: 
+        'Fn::Sub': '${environment}-${service}-${product}-ecr-repo-uri'
+
+  securityGroupId:
+    Description: ECS Instance Security Group ID
+    Value: !Ref securityGroup
+    Export:
+      Name: 
+        'Fn::Sub': '${environment}-${service}-${product}-security-group-id'

@@ -1,0 +1,28 @@
+pipeline {
+    agent any
+
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+    }
+
+    stages {
+        stage('Deploy vpc') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                        cfnUpdate(
+                            stack: "${env.environment}-${env.service}",
+                            file: 'iac/aws/cloudformation/vpc/vpc.yml',
+                            params: [
+                                environment: env.environment,
+                                service: env.service                                                
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }           
+    }
+}

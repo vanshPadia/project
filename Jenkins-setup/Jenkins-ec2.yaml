@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template to create security group, and EC2 instance with Jenkins setup
+
+Parameters:
+  instanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+    ConstraintDescription: Must be a valid EC2 instance type.
+
+  keyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::keyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+  environment:
+    Description: environment type
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+    ConstraintDescription: environment must be either Dev or Prod.
+
+  amiId:
+    Description: The AMI ID for the EC2 instance
+    Type: String
+    Default: ami-0dee22c13ea7a9a67
+
+Resources:
+  devSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and HTTP access
+      VpcId:
+        Fn::ImportValue: ${environment}-devVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${environment}-SecurityGroup"
+
+  devEc2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      instanceType: !Ref instanceType
+      keyName: !Ref keyName
+      ImageId: !Ref amiId
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId:
+            Fn::ImportValue: ${environment}-Subnet
+
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref devSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt update && apt install -y openjdk-17-jre         
+          curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+          echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/ | tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+          sudo apt update -y && sudo apt install -y jenkins
+          systemctl start jenkins
+          systemctl enable jenkins
+      Tags:
+        - Key: Name
+          Value: !Sub "${environment}-devEc2Instance"
+        - Key: environment
+          Value: !Ref environment
+
+Outputs:
+  instanceId:
+    Description: The Instance ID of the newly created EC2 instance
+    Value: !Ref devEc2Instance
+
+  publicIP:
+    Description: Public IP address of the EC2 instance
+    Value: !GetAtt devEc2Instance.PublicIp
+
+  securityGroupId:
+    Description: The Security Group ID of the newly created Security Group
+    Value: !Ref devSecurityGroup

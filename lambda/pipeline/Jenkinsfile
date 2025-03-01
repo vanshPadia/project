@@ -1,0 +1,30 @@
+pipeline {
+    agent any
+
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+    }
+
+    stages {
+        stage('Deploy EC2') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                        cfnUpdate(
+                            stack: "${env.environment}-lambda",
+                            file: 'iac/aws/cloudformation/lambda.yml',
+                            params: [
+                                environment: env.environment,
+                                indexPattern: env.indexPattern,
+                                timeUnit: env.timeUnit,
+                                timeValue: env.timeValue
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }      
+    }
+}

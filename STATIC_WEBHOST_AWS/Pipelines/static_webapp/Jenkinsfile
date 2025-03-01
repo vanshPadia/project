@@ -1,0 +1,93 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Deploy DNS Stack') {
+            steps {
+                script {
+                    withFolderProperties {
+                        withAWS(credentials: 'aws', region: AWS_REGION) {
+                            cfnUpdate(
+                                stack: "${env.environment}-dns-acm",
+                                file: 'iac/aws/cloudformation/route_53/Route53-acm.yaml',
+                                params: [
+                                    domainName: env.domainName
+                                ],
+                                timeoutInMinutes: 30
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy CDN Stack') {
+            steps {
+                script {
+                    withFolderProperties {
+                        withAWS(credentials: 'aws', region: AWS_REGION) {
+                            cfnUpdate(
+                                stack: "${env.environment}-s3-cdn",
+                                file: 'iac/aws/cloudformation/s3/s3-cdn.yaml',
+                                params: [
+                                    environment: env.environment,
+                                    product: env.product,
+                                    service: env.service,
+                                    subdomain: env.subdomain
+                                ],
+                                timeoutInMinutes: 30
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Content') {
+            steps {
+                script {
+                    withFolderProperties {
+                        withAWS(credentials: 'aws', region: AWS_REGION) {
+                            def s3Bucket = "${env.environment}-${env.product}-bucket-${env.service}"
+                            sh "aws s3 cp index.html s3://${s3Bucket}/"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Verify') {
+            steps {
+                script {
+                    withFolderProperties {
+                        echo "Website deployed to: https://${env.subdomain}.${env.domainName}"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            script {
+                withFolderProperties {
+                    echo "Pipeline completed successfully for ${env.environment} environment!"
+                }
+            }
+        }
+        failure {
+            script {
+                withFolderProperties {
+                    echo "Pipeline failed for ${env.environment} environment!"
+                }
+            }
+        }
+    }
+}

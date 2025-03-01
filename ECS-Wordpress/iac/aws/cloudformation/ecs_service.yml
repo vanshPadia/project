@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECS service Deployment
+
+Parameters:
+  environment:
+    Type: String
+    Description: Deployment environment
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  service:
+    Type: String
+    Description: Name of the service
+    Default: wordpress
+
+  product:
+    Type: String
+    Description: Name of the product
+    Default: ibs
+
+Resources:
+  taskDefinitionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${environment}-${product}-${service}-taskExecRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  taskDefinitionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${environment}-${product}-${service}-taskRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  wordpressTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: bridge
+      Family: !Sub "${environment}-${service}-${product}-task"
+      RequiresCompatibilities:
+        - EC2
+      Cpu: 512
+      Memory: 512
+      ExecutionRoleArn: !GetAtt taskDefinitionExecutionRole.Arn
+      TaskRoleArn: !GetAtt taskDefinitionRole.Arn
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: !Sub "${environment}-${service}-${product}-container"
+          Image:
+            !ImportValue 
+              Fn::Sub: "${environment}-${service}-${product}-ecr-repo-uri"
+          Cpu: 0
+          MemoryReservation: 512
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/${environment}-${service}-${product}-logs"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: ecs
+              mode: non-blocking
+              max-buffer-size: 25m
+
+  wordpressEcsService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !ImportValue 
+        Fn::Sub: "${environment}-${service}-${product}-ecs-cluster-name"
+      TaskDefinition: !Ref wordpressTaskDefinition
+      ServiceName: !Sub ${environment}-${service}-${product}-service
+      SchedulingStrategy: REPLICA
+      DesiredCount: 1
+      LaunchType: EC2
+      AvailabilityZoneRebalancing: ENABLED
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+
+Outputs:
+  ecsServiceName:
+    Description: ECS Service Name
+    Value: !GetAtt wordpressEcsService.Name
+  taskExecutionRoleArn:
+    Description: Task Execution Role ARN
+    Value: !GetAtt taskDefinitionExecutionRole.Arn
+  taskRoleArn:
+    Description: Task Role ARN
+    Value: !GetAtt taskDefinitionRole.Arn

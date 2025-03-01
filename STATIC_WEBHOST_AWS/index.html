@@ -1,0 +1,215 @@
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>
+        Personal Portfolio
+    </title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&amp;display=swap" rel="stylesheet" />
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 1rem 0;
+            text-align: center;
+        }
+
+        nav {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        nav a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .hero {
+            background: url('https://placehold.co/1200x400') no-repeat center center/cover;
+            height: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+        }
+
+        .section {
+            padding: 2rem 1rem;
+            text-align: center;
+        }
+
+        .section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .about,
+        .projects,
+        .contact {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .projects .project {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .projects .project-item {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 8px;
+            width: 300px;
+            text-align: left;
+        }
+
+        .projects .project-item img {
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        .contact form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .contact form input,
+        .contact form textarea {
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .contact form button {
+            padding: 0.5rem;
+            border: none;
+            border-radius: 4px;
+            background-color: #333;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        footer {
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            padding: 1rem 0;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>
+            John Doe
+        </h1>
+        <nav>
+            <a href="#about">
+                About
+            </a>
+            <a href="#projects">
+                Projects
+            </a>
+            <a href="#contact">
+                Contact
+            </a>
+        </nav>
+    </header>
+    <section class="hero">
+        <h1>
+            Welcome to My Portfolio
+        </h1>
+    </section>
+    <section class="section about" id="about">
+        <h2>
+            About Me
+        </h2>
+        <p>
+            Hello! I'm John Doe, a passionate web developer with a knack for creating dynamic and responsive websites.
+            With a background in computer science and a love for coding, I strive to build web applications that are not
+            only functional but also visually appealing.
+        </p>
+    </section>
+    <section class="section projects" id="projects">
+        <h2>
+            Projects
+        </h2>
+        <div class="project">
+            <div class="project-item">
+                <img alt="Screenshot of Project 1, a responsive web application with a modern design" height="200"
+                    src="https://storage.googleapis.com/a1aa/image/RremSicQeVr0IEwOtVCQxEOYC8ILRvrOW6DN5ui68fpljzjnA.jpg"
+                    width="300" />
+                <h3>
+                    Project 1
+                </h3>
+                <p>
+                    A responsive web application with a modern design.
+                </p>
+            </div>
+            <div class="project-item">
+                <img alt="Screenshot of Project 2, an e-commerce website with a user-friendly interface" height="200"
+                    src="https://storage.googleapis.com/a1aa/image/fJzUSVeJcTrJNEr1fUCCbmCGpDLfg0gCIMgDfLLSEArecce4JA.jpg"
+                    width="300" />
+                <h3>
+                    Project 2
+                </h3>
+                <p>
+                    An e-commerce website with a user-friendly interface.
+                </p>
+            </div>
+            <div class="project-item">
+                <img alt="Screenshot of Project 3, a portfolio website showcasing various projects" height="200"
+                    src="https://storage.googleapis.com/a1aa/image/YrqfvNxz0kx6VCV9kafkayaHyLx0kkxCkvtFTIQlEZj1x5xTA.jpg"
+                    width="300" />
+                <h3>
+                    Project 3
+                </h3>
+                <p>
+                    A portfolio website showcasing various projects.
+                </p>
+            </div>
+        </div>
+    </section>
+    <section class="section contact" id="contact">
+        <h2>
+            Contact Me
+        </h2>
+        <form action="#" method="post">
+            <input name="name" placeholder="Your Name" required="" type="text" />
+            <input name="email" placeholder="Your Email" required="" type="email" />
+            <textarea name="message" placeholder="Your Message" required="" rows="5"></textarea>
+            <button type="submit">
+                Send Message
+            </button>
+        </form>
+    </section>
+    <footer>
+        <p>
+            © 2023 John Doe. All rights reserved.
+        </p>
+    </footer>
+</body>
+
+</html>

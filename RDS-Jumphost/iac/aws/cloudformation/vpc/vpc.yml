@@ -1,0 +1,158 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a VPC
+
+Parameters:
+  environment:
+    Description: Environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+Resources:
+  vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-VPC
+
+  internetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties: {}
+
+  gatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref vpc
+      InternetGatewayId: !Ref internetGateway
+
+  publicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref vpc
+      CidrBlock: !Select
+        - 1
+        - !Cidr
+          - !GetAtt vpc.CidrBlock
+          - 5
+          - 8 
+      AvailabilityZone: !Sub ${AWS::Region}a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-publicSubnet1
+
+  privateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref vpc
+      CidrBlock: !Select
+        - 2
+        - !Cidr
+          - !GetAtt vpc.CidrBlock
+          - 5
+          - 8 
+      AvailabilityZone: !Sub ${AWS::Region}a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-privateSubnet1
+
+  publicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref vpc
+      CidrBlock: !Select
+        - 3
+        - !Cidr
+          - !GetAtt vpc.CidrBlock
+          - 5
+          - 8  
+      AvailabilityZone: !Sub ${AWS::Region}b
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-publicSubnet2
+
+  privateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref vpc
+      CidrBlock: !Select
+        - 4
+        - !Cidr
+          - !GetAtt vpc.CidrBlock
+          - 5
+          - 8   
+      AvailabilityZone: !Sub ${AWS::Region}b
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-privateSubnet2
+
+  publicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-publicRouteTable
+
+  publicDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref publicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref internetGateway
+
+  publicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref publicSubnet1
+      RouteTableId: !Ref publicRouteTable
+
+  publicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref publicSubnet2
+      RouteTableId: !Ref publicRouteTable
+
+Outputs:
+  vpcId:
+    Description: The VPC ID of the newly created VPC
+    Value: !Ref vpc
+    Export:
+      Name: !Sub "vpc"
+
+  publicSubnet1Id:
+    Description: The Subnet ID of the first public subnet
+    Value: !Ref publicSubnet1
+    Export:
+      Name: !Sub "publicSubnet1"
+
+  publicSubnet2Id:
+    Description: The Subnet ID of the second public subnet
+    Value: !Ref publicSubnet2
+    Export:
+      Name: !Sub "publicSubnet2"
+
+  privateSubnet1Id:
+    Description: The Subnet ID of the first private subnet
+    Value: !Ref privateSubnet1
+    Export:
+      Name: !Sub "privateSubnet1"
+
+  privateSubnet2Id:
+    Description: The Subnet ID of the second private subnet
+    Value: !Ref privateSubnet2
+    Export:
+      Name: !Sub "privateSubnet2"
+
+  VpcCidrBlockExport:
+    Description: The Subnet ID of the second private subnet
+    Value: !GetAtt vpc.CidrBlock
+    Export:
+      Name: !Sub "vpcCidir"
