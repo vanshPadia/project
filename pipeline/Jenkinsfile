@@ -1,0 +1,29 @@
+pipeline {
+    agent any
+
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+    }
+
+    stages {
+        stage('Deploy EC2') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                        cfnUpdate(
+                            stack: "${env.environment}-${env.service}",
+                            file: 'iac/aws/cloudformation/openvpn.yml',
+                            params: [
+                                environment: env.environment,
+                                keyName:env.keyName,
+                                service:env.service                         
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }      
+    }
+}

@@ -1,0 +1,218 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a openvpn.
+
+Parameters:
+  environment:
+    Description: environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  ServerCN:
+    Type: String
+    Description: Server Common Name for VPN
+    Default: vpn.myserver.com
+
+  service:
+    Type: String
+    Description: service
+    Default: openvpn
+
+  keyName:    
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: String
+
+Mappings:
+  envMap:
+    dev:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+
+
+    prod:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+
+
+    staging:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+
+
+Resources:
+ openVpnSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for openVpn allowing SSH and https access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.1.0/24
+        - IpProtocol: tcp
+          FromPort: 943
+          ToPort: 943
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 945
+          ToPort: 945
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 1194
+          ToPort: 1194
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-SecurityGroup
+
+ instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !FindInMap [envMap, !Ref environment, InstanceType]
+      ImageId: !FindInMap [envMap, !Ref environment, ImageId]
+      SubnetId: !ImportValue publicSubnet1
+      SecurityGroupIds:
+        - !Ref openVpnSecurityGroup
+      KeyName: !Ref keyName
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash          
+          export DEBIAN_FRONTEND=noninteractive
+
+          # Pre-configure iptables-persistent to automatically save rules
+          echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+          echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
+
+          TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          PUBLIC_IP=$(curl -sH "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
+
+          # Update and install
+          apt update && apt upgrade -y
+          apt install -y openvpn easy-rsa iptables-persistent          
+
+          # Set up Easy-RSA in ubuntu's home directory
+          mkdir -p /home/ubuntu/easy-rsa
+          ln -s /usr/share/easy-rsa/* /home/ubuntu/easy-rsa/
+          cd /home/ubuntu/easy-rsa
+
+          # Initialize PKI
+          ./easyrsa init-pki
+
+          # Build CA with automatic naming
+          echo -e "\n\n" | ./easyrsa build-ca nopass
+
+          # Generate Server Certificate and Key without interaction
+          echo -e "\n" | ./easyrsa gen-req server nopass
+          echo yes | ./easyrsa sign-req server server
+
+          # Generate Diffie-Hellman Parameters
+          ./easyrsa gen-dh
+
+          # Copy certificates and keys to OpenVPN directory
+          mkdir -p /etc/openvpn/server
+          cp /home/ubuntu/easy-rsa/pki/ca.crt /etc/openvpn/server/
+          cp /home/ubuntu/easy-rsa/pki/issued/server.crt /etc/openvpn/server/
+          cp /home/ubuntu/easy-rsa/pki/private/server.key /etc/openvpn/server/
+          cp /home/ubuntu/easy-rsa/pki/dh.pem /etc/openvpn/server/
+
+
+          # Create OpenVPN server configuration
+          cat > /etc/openvpn/server/server.conf <<EOF
+          port 1194
+          proto udp
+          dev tun
+          ca /etc/openvpn/server/ca.crt
+          cert /etc/openvpn/server/server.crt
+          key /etc/openvpn/server/server.key
+          dh /etc/openvpn/server/dh.pem
+          server 10.8.0.0 255.255.255.0
+          push "route 10.0.2.0 255.255.255.0"
+          push "dhcp-option DNS 8.8.8.8"
+          push "dhcp-option DNS 8.8.4.4"
+          keepalive 10 120
+          cipher AES-256-CBC
+          user nobody
+          group nogroup
+          persist-key
+          persist-tun
+          status /var/log/openvpn-status.log
+          verb 3
+          EOF
+
+          # Enable IP forwarding
+          echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-openvpn.conf
+          sysctl -p /etc/sysctl.d/99-openvpn.conf
+
+          # Get the primary network interface
+          INTERFACE=$(ip route | grep default | awk '{print $5}')
+
+          # Configure NAT and firewall rules
+          iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o $INTERFACE -j MASQUERADE
+          iptables -A FORWARD -s 10.8.0.0/24 -d 10.0.2.0/24 -j ACCEPT
+
+          # Save iptables rules
+          iptables-save > /etc/iptables/rules.v4
+
+          # Generate Client Certificate
+          cd /home/ubuntu/easy-rsa
+          echo -e "\n" | ./easyrsa gen-req client1 nopass
+          echo yes | ./easyrsa sign-req client client1
+
+          # Create client configuration file with actual public IP
+          cat > /home/ubuntu/client.ovpn <<EOF
+          client
+          dev tun
+          proto udp
+          remote ${PUBLIC_IP} 1194
+          resolv-retry infinite
+          nobind
+          persist-key
+          persist-tun
+          remote-cert-tls server
+          cipher AES-256-CBC
+          verb 3
+          <ca>
+          $(cat /home/ubuntu/easy-rsa/pki/ca.crt)
+          </ca>
+          <cert>
+          $(cat /home/ubuntu/easy-rsa/pki/issued/client1.crt)
+          </cert>
+          <key>
+          $(cat /home/ubuntu/easy-rsa/pki/private/client1.key)
+          </key>
+          EOF
+
+          # Fix permissions for all ubuntu files
+          chown -R ubuntu:ubuntu /home/ubuntu/easy-rsa
+          chown ubuntu:ubuntu /home/ubuntu/client.ovpn
+          chmod 600 /home/ubuntu/client.ovpn
+
+          # Restart and enable OpenVPN service
+          systemctl restart openvpn-server@server
+          systemctl enable openvpn-server@server
+
+          echo "OpenVPN setup complete. Client configuration available at /home/ubuntu/client.ovpn"
+          
+
+Outputs:
+ SecurityGroupId:
+    Description: The Security Group ID for ec2
+    Value: !Ref openVpnSecurityGroup
+    Export:
+      Name: !Sub "${environment}-${service}-securityGroup"
+
+ InstanceId:
+    Description: The Instance ID of ec2
+    Value: !Ref instance
+    Export:
+      Name: !Sub "${environment}-${service}"
