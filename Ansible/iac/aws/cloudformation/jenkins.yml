@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template to create a jenkins ec2.
+
+Parameters:
+  environment:
+    Description: environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  keyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: String
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+Mappings:
+  envToinstanc:
+    dev:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+    prod:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+    staging:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+
+Resources:
+  jenkinsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for openVpn allowing SSH and https access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.1.0/24
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-jenkinsSecurityGroup
+
+  masterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !FindInMap [envToinstanc, !Ref environment, InstanceType]
+      ImageId: !FindInMap [envToinstanc, !Ref environment, ImageId]
+      SubnetId: !ImportValue PublicSubnet1
+      SecurityGroupIds:
+        - !Ref jenkinsSecurityGroup
+      KeyName: !Ref keyName
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-jenkins-master
+      # UserData:
+      #   Fn::Base64: !Sub |
+      #     #!/bin/bash
+
+      #     # Update package lists
+      #     sudo apt update
+
+      #     # Install required software
+      #     apt install -y software-properties-common git
+      #     add-apt-repository --yes --update ppa:ansible/ansible
+      #     apt install -y ansible
+
+      #     # Clone the git repository
+      #     git clone -b devOps/devOps#2547 https://git.impressicocrm.com/devOps/vansh_training.git
+
+      #     # Navigate to the repository directory
+      #     cd vansh_training/jenkins-ansible
+
+      #     # Run the Ansible playbook
+      #     ansible-playbook -i inventory.ini playbook.yml
+
+      #     # Print completion message
+      #     echo "Git repository cloned and Ansible playbook executed successfully"
+
+  slaveInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !FindInMap [envToinstanc, !Ref environment, InstanceType]
+      ImageId: !FindInMap [envToinstanc, !Ref environment, ImageId]
+      SubnetId: !ImportValue PublicSubnet1
+      SecurityGroupIds:
+        - !Ref jenkinsSecurityGroup
+      KeyName: !Ref keyName
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-jenkins-slave
+
+Outputs:
+  SecurityGroupId:
+    Description: The Security Group ID for ec2
+    Value: !Ref jenkinsSecurityGroup
+    Export:
+      Name: !Sub "${environment}-jenkinsSecurityGroup"
+
+  slaveInstanceId:
+    Description: The Instance ID of jenkins-slave
+    Value: !Ref slaveInstance
+    Export:
+      Name: !Sub "${environment}-jenkins-slave"
+  masterInstanceId:
+    Description: The Instance ID of jenkins-master
+    Value: !Ref masterInstance
+    Export:
+      Name: !Sub "${environment}-jenkins-master"

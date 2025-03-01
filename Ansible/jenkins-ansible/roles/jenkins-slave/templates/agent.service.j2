@@ -1,0 +1,24 @@
+[Unit]
+Description=Jenkins Agent
+After=network.target
+
+[Service]
+Type=simple
+User={{ jenkins_user | default('jenkins') }}
+Group={{ jenkins_group | default('jenkins') }}
+WorkingDirectory={{ jenkins_dir | default('/home/jenkins') }}
+ExecStart=/usr/bin/java -jar {{ jenkins_dir | default('/home/jenkins') }}/agent.jar \
+    -url {{ jenkins_master_url | default('http://localhost:8080') }}/ \
+    -secret {{ hostvars['master']['jenkins_slave_secret']  | default('your-secret-token-here') }} \
+    -name {{ jenkins_slave_name | default('jenkins-slave') }} \
+{% if use_websocket | default(true) %}
+    -webSocket \
+{% endif %}
+    -workDir {{ work_dir | default('/home/jenkins') }}
+Restart=always
+RestartSec={{ restart_sec | default(10) }}
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

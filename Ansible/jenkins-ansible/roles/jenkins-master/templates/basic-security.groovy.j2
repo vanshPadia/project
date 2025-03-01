@@ -1,0 +1,24 @@
+# roles/jenkins-master/templates/basic-security.groovy.j2
+#!groovy
+
+import jenkins.model.*
+import hudson.security.*
+import jenkins.security.s2m.AdminWhitelistRule
+
+def instance = Jenkins.getInstance()
+
+def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+hudsonRealm.createAccount("{{ jenkins_admin_username }}", "{{ jenkins_admin_password }}")
+instance.setSecurityRealm(hudsonRealm)
+
+def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+strategy.setAllowAnonymousRead(false)
+instance.setAuthorizationStrategy(strategy)
+
+instance.save()
+
+instance.getInjector().getInstance(AdminWhitelistRule.class).setMasterKillSwitch(false)
+
+// Disable CSRF protection during initial setup
+instance.setCrumbIssuer(null)
+instance.save()

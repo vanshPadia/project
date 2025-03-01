@@ -1,0 +1,142 @@
+---
+- name: Wait for Jenkins to be available
+  wait_for:
+    port: "{{ jenkins_http_port }}"
+    delay: 10
+    timeout: 300
+
+- name: Create Jenkins CLI directory
+  file:
+    path: "{{ jenkins_home }}/cli"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0755"
+
+- name: Download Jenkins CLI
+  get_url:
+    url: "{{ jenkins_master_url }}/jnlpJars/jenkins-cli.jar"
+    dest: "{{ jenkins_home }}/cli/jenkins-cli.jar"
+    mode: "0755"
+  retries: 5
+  delay: 10
+  register: cli_download
+  until: cli_download is success
+
+- name: Install plugins using CLI method if jenkins_plugin module fails
+  shell: >
+    java -jar /var/lib/jenkins/cli/jenkins-cli.jar
+    -s http://localhost:8080
+    -auth admin:"{{ jenkins_admin_initial_password.stdout }}"
+
+    install-plugin {{ item }} -deploy
+  with_items:
+    - git
+    - workflow-aggregator
+    - blueocean
+    - docker-workflow
+    - credentials-binding
+    - matrix-auth
+  register: cli_plugin_result
+
+- name: Create init.groovy.d directory
+  file:
+    path: "{{ jenkins_home }}/init.groovy.d"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0755"
+
+- name: Create token generation script
+  copy:
+    dest: "{{ jenkins_home }}/init.groovy.d/create-token.groovy"
+    content: |
+      import jenkins.model.*
+      import hudson.security.*
+      import jenkins.security.ApiTokenProperty
+
+      def instance = Jenkins.getInstance()
+      def user = instance.getSecurityRealm().getUser("{{ jenkins_admin_username }}")
+      def result = user.getProperty(ApiTokenProperty.class).generateNewToken("ansible-token")
+      println "TOKEN:" + result.plainValue
+    owner: jenkins
+    group: jenkins
+    mode: "0644"
+
+- name: Execute token generation script
+  shell: |
+    java -jar {{ jenkins_home }}/cli/jenkins-cli.jar \
+    -s {{ jenkins_master_url }} \
+    -auth {{ jenkins_admin_username }}:{{ jenkins_admin_initial_password.stdout }} \
+    groovy = < {{ jenkins_home }}/init.groovy.d/create-token.groovy
+  register: token_output
+
+- name: Extract API token from output
+  set_fact:
+    jenkins_api_token: "{{ token_output.stdout | regex_search('TOKEN:(.+)$', '\\1') | first }}"
+    cacheable: yes
+- name: Create node on Jenkins master
+  shell: |
+    cat << 'EOF' | java -jar {{ jenkins_home }}/cli/jenkins-cli.jar \
+    -s {{ jenkins_master_url }} \
+    -auth {{ jenkins_admin_username }}:{{ jenkins_api_token }} \
+    groovy =
+    import jenkins.model.*
+    import hudson.model.*
+    import hudson.slaves.*
+
+    def jenkins = Jenkins.getInstance()
+    def slaveName = "{{ jenkins_slave_name }}"
+
+    // Delete existing node if it exists
+    def existingNode = jenkins.getNode(slaveName)
+    if (existingNode) {
+        jenkins.removeNode(existingNode)
+    }
+
+    // Create new node
+    def slave = new DumbSlave(
+        slaveName,
+        "/home/jenkins",
+        new JNLPLauncher(true)
+    )
+    slave.setNumExecutors(2)
+    slave.setLabelString(slaveName)
+    slave.setMode(Node.Mode.NORMAL)
+    slave.setRetentionStrategy(new RetentionStrategy.Always())
+
+    jenkins.addNode(slave)
+    println "Node created successfully"
+    EOF
+  register: create_node_output
+
+- name: Get slave secret
+  shell: |
+    curl -s -u {{ jenkins_admin_username }}:{{ jenkins_api_token }} \
+    {{ jenkins_master_url }}/computer/{{ jenkins_slave_name }}/jenkins-agent.jnlp | \
+    grep -o '<argument>[^<]*</argument>' | head -n 1 | sed 's/<argument>\(.*\)<\/argument>/\1/'
+  register: secret_output
+
+- name: Set slave secret fact
+  set_fact:
+    jenkins_slave_secret: "{{ secret_output.stdout }}"
+
+- name: Save slave secret for other hosts
+  set_fact:
+    jenkins_slave_secret: "{{ jenkins_slave_secret }}"
+  delegate_to: localhost
+  delegate_facts: true
+
+- name: Ensure TCP port for inbound agents is set
+  shell: |
+    cat << 'EOF' | java -jar {{ jenkins_home }}/cli/jenkins-cli.jar \
+    -s {{ jenkins_master_url }} \
+    -auth {{ jenkins_admin_username }}:{{ jenkins_api_token }} \
+    groovy =
+    import jenkins.model.*
+
+    def instance = Jenkins.getInstance()
+    instance.setSlaveAgentPort(50000)
+    instance.save()
+    println "TCP port for inbound agents set to 50000"
+    EOF

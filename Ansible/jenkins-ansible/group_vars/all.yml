@@ -1,0 +1,9 @@
+---
+jenkins_home: /var/lib/jenkins
+jenkins_http_port: 8080
+jenkins_admin_username: admin
+jenkins_admin_password: admin123
+jenkins_slave_name: jenkins-slave
+jenkins_master_url: "http://{{ hostvars[groups['jenkins-master'][0]]['ansible_host'] }}:8080"
+jenkins_dir: /home/jenkins
+jenkins_secret_value: 505a49fd3815ac2c354e002a8284d3d8d5c2c6c6c203f0a43db53758cf1e4bab

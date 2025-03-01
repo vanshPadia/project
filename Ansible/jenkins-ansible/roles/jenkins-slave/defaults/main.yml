@@ -1,0 +1,4 @@
+---
+jenkins_user: jenkins
+jenkins_group: jenkins
+jenkins_home_slave: /home/jenkins

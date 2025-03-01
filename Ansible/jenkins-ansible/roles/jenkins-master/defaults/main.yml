@@ -1,0 +1,6 @@
+---
+jenkins_plugins:
+  - workflow-aggregator
+  - git
+  - ssh-slaves
+  - configuration-as-code

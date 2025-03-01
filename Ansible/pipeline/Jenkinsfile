@@ -1,0 +1,28 @@
+pipeline {
+    agent any
+
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+    }
+
+    stages {
+        stage('Deploy EC2') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                        cfnUpdate(
+                            stack: "${env.environment}-ansible",
+                            file: 'iac/aws/cloudformation/jenkins-m&s.yml',
+                            params: [
+                                environment: env.environment,
+                                keyName:env.keyName                            
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }      
+    }
+}

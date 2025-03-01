@@ -1,0 +1,54 @@
+# roles/jenkins-slave/tasks/install.yml
+---
+- name: Install Java 17
+  apt:
+    name: openjdk-17-jdk
+    state: present
+    update_cache: yes
+
+- name: Create Jenkins group
+  group:
+    name: "{{ jenkins_group }}"
+    state: present
+
+- name: Create Jenkins user
+  user:
+    name: "{{ jenkins_user }}"
+    group: "{{ jenkins_group }}"
+    home: "{{ jenkins_home_slave }}"
+    shell: /bin/bash
+    system: yes
+    create_home: yes
+
+- name: Create work directory
+  file:
+    path: "{{ jenkins_home_slave }}"
+    owner: "{{ jenkins_user }}"
+    group: "{{ jenkins_group }}"
+    mode: "0755"
+    state: directory
+
+- name: Download agent.jar
+  get_url:
+    url: "{{ jenkins_master_url }}/jnlpJars/agent.jar"
+    dest: "{{ jenkins_home_slave }}/agent.jar"
+    mode: "0755"
+    owner: "{{ jenkins_user }}"
+    group: "{{ jenkins_group }}"
+
+- name: Use Jenkins Secret in Another Role
+  debug:
+    msg: "Jenkins Secret = {{ hostvars['master']['jenkins_secret_value'] }}"
+
+- name: Create systemd service for Jenkins agent
+  template:
+    src: agent.service.j2
+    dest: /etc/systemd/system/jenkins-agent.service
+    mode: "0644"
+
+- name: Start and enable Jenkins agent
+  systemd:
+    name: jenkins-agent
+    daemon_reload: yes
+    state: restarted
+    enabled: yes

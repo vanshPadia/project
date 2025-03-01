@@ -1,0 +1,16 @@
+---
+- name: Setup Jenkins Master
+  hosts: jenkins-master
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+  roles:
+    - jenkins-master
+
+- name: Setup Jenkins Slave
+  hosts: jenkins-slave
+  become: yes
+  become_method: sudo
+  gather_facts: yes
+  roles:
+    - jenkins-slave
