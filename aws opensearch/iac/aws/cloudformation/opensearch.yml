@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OpenSearch Domain with VPC Configuration
+
+Mappings:
+  envMap:
+    dev:
+      InstanceType: t3.small.search
+      EngineVersion: 'Elasticsearch_7.10'
+    prod:
+      InstanceType: t3.small.search
+      EngineVersion: 'Elasticsearch_7.10'
+    staging:
+      InstanceType: t3.small.search
+      EngineVersion: 'Elasticsearch_7.10'
+
+Parameters:
+  environment:
+    Description: Environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  domainName:
+    Description: OpenSearch domain name
+    Type: String
+    Default: testdomain
+
+Resources:
+  openSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for OpenSearch allowing internal access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-securityGroup
+
+  OpenSearchServiceDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Ref domainName
+      EngineVersion: !FindInMap [envMap, !Ref environment, EngineVersion]
+      ClusterConfig:
+        InstanceCount: 1
+        InstanceType: !FindInMap [envMap, !Ref environment, InstanceType]
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 10
+        VolumeType: gp3
+      VPCOptions:
+        SubnetIds:
+          - !ImportValue PrivateSubnet1
+        SecurityGroupIds:
+          - !Ref openSecurityGroup
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: es:*
+            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${domainName}/*"
+      AdvancedOptions:
+        rest.action.multi.allow_explicit_index: 'true'
+        override_main_response_version: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-domain
+
+Outputs:
+  DomainArn:
+    Description: ARN of the OpenSearch domain
+    Value: !GetAtt OpenSearchServiceDomain.Arn
+
+  DomainEndpoint:
+    Description: Endpoint of the OpenSearch domain
+    Value: !GetAtt OpenSearchServiceDomain.DomainEndpoint
+    Export:
+      Name: !Sub "DomainEndpoint"
+
+  openSecurityGroupId:
+    Description: The Security Group ID for OpenSearch
+    Value: !Ref openSecurityGroup
+    Export:
+      Name: !Sub "${environment}-openSecurityGroup"

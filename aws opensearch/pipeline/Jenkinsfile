@@ -1,0 +1,45 @@
+pipeline {
+    agent any
+
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+    }
+
+    stages {          
+        stage('Deploy opensearch') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                        cfnUpdate(
+                            stack: "${env.environment}-opensearch",
+                            file: 'iac/aws/cloudformation/opensearch.yml',
+                            params: [
+                                environment: env.environment,
+                                domainName: env.domainName                            
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }
+        stage('Deploy EC2') {
+            steps {
+                withFolderProperties {
+                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                        cfnUpdate(
+                            stack: "${env.environment}-ec2",
+                            file: 'iac/aws/cloudformation/ec2.yml',
+                            params: [
+                                environment: env.environment,
+                                keyName:env.keyName                            
+                            ],
+                            timeoutInMinutes: 30
+                        )
+                    }
+                }
+            }
+        }      
+    }
+}

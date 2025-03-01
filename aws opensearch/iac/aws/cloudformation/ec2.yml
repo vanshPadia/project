@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a ec2.
+
+Parameters:
+  environment:
+    Description: environment type
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+  service:
+    Type: String
+    Description: service
+    Default: tomcat
+
+  keyName:    
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: String
+
+Mappings:
+  envMap:
+    dev:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+    prod:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+    staging:
+      InstanceType: t2.micro
+      ImageId: ami-00bb6a80f01f03502
+
+Resources:
+  ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ec2 allowing SSH and HTTPS access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.1.0/24
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}-securityGroup
+
+  instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !FindInMap [envMap, !Ref environment, InstanceType]
+      ImageId: !FindInMap [envMap, !Ref environment, ImageId]
+      SubnetId: !ImportValue PublicSubnet1
+      SecurityGroupIds:
+        - !Ref ec2SecurityGroup
+      KeyName: !Ref keyName
+      Tags:
+        - Key: Name
+          Value: !Sub ${environment}-${service}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          
+          # Update system and install required packages
+          apt update -y && apt install -y openjdk-11-jdk wget nano unzip curl
+
+          # Install and setup Tomcat
+          wget https://dlcdn.apache.org/tomcat/tomcat-10/v10.1.35/bin/apache-tomcat-10.1.35.tar.gz
+          tar -xvzf apache-tomcat-10.1.35.tar.gz
+          mv apache-tomcat-10.1.35 /opt/tomcat
+
+          # Create tomcat user
+          useradd -r -m -U -d /opt/tomcat -s /bin/false tomcat || true
+
+          # Set correct permissions
+          chown -R tomcat:tomcat /opt/tomcat
+          chmod +x /opt/tomcat/bin/*.sh
+
+          # Create Tomcat service file
+          cat <<EOF > /etc/systemd/system/tomcat.service
+          [Unit]
+          Description=Apache Tomcat
+          After=network.target
+
+          [Service]
+          Type=forking
+          User=tomcat
+          Group=tomcat
+
+          Environment="JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64"
+          Environment="CATALINA_PID=/opt/tomcat/temp/tomcat.pid"
+          Environment="CATALINA_HOME=/opt/tomcat"
+          Environment="CATALINA_BASE=/opt/tomcat"
+          Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"
+
+          ExecStart=/opt/tomcat/bin/startup.sh
+          ExecStop=/opt/tomcat/bin/shutdown.sh
+
+          WorkingDirectory=/opt/tomcat
+          TimeoutStartSec=120
+          RestartSec=10
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Set proper permissions for service file
+          chmod 644 /etc/systemd/system/tomcat.service
+
+          # Ensure directories exist with correct permissions
+          mkdir -p /opt/tomcat/temp /opt/tomcat/logs
+          chown -R tomcat:tomcat /opt/tomcat/temp /opt/tomcat/logs
+          chmod 750 /opt/tomcat/temp /opt/tomcat/logs
+
+          # Create log generation script
+          cat <<EOF > /opt/tomcat/bin/generate_logs.sh
+          #!/bin/bash
+
+          # Function to generate timestamp
+          timestamp() {
+            date "+%Y-%m-%d %H:%M:%S"
+          }
+
+          # Generate log by accessing Tomcat
+          curl -s "http://localhost:8080" > /dev/null 2>&1
+          echo "[\$(timestamp)] Access log generated via curl" >> /opt/tomcat/logs/catalina.out
+          EOF
+
+          # Set script permissions
+          chmod +x /opt/tomcat/bin/generate_logs.sh
+          chown tomcat:tomcat /opt/tomcat/bin/generate_logs.sh
+
+          # Setup cron job for log generation
+          (crontab -l 2>/dev/null; echo "*/10 * * * * /opt/tomcat/bin/generate_logs.sh") | crontab -
+
+          # Install Filebeat
+          wget https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-oss-7.10.2-amd64.deb
+          dpkg -i filebeat-oss-7.10.2-amd64.deb
+
+          # Configure Filebeat
+          cat <<EOF > /etc/filebeat/filebeat.yml
+          setup.ilm.enabled: false
+          filebeat.inputs:
+            - type: log
+              enabled: true
+              paths:
+                - /opt/tomcat/logs/*.out
+          setup.template.settings:
+            index.number_of_shards: 1
+          setup.kibana:
+            host: "localhost:5601"
+          setup.template.name: "filebeat01"
+          setup.template.pattern: "filebeat01-*"
+          output.elasticsearch:
+            hosts: ["localhost:443"]
+            protocol: "https"
+            index: "filebeat01-%{+yyyy.MM.dd}"
+          processors:
+            - add_host_metadata:
+                when.not.contains.tags: forwarded
+            - add_cloud_metadata: ~
+            - add_docker_metadata: ~
+            - add_kubernetes_metadata: ~
+          EOF
+
+          # Start and enable services
+          systemctl daemon-reload
+          systemctl stop tomcat
+          rm -f /opt/tomcat/temp/tomcat.pid
+          systemctl start tomcat
+          systemctl enable tomcat
+          systemctl start filebeat
+          systemctl enable filebeat
+Outputs:
+  SecurityGroupId:
+    Description: The Security Group ID for EC2
+    Value: !Ref ec2SecurityGroup
+    Export:
+      Name: !Sub "${environment}-${service}-scurityGroup"
+
+  InstanceId:
+    Description: The Instance ID of EC2
+    Value: !Ref instance
+    Export:
+      Name: !Sub "${environment}-${service}-instance"
