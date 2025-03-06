@@ -38,7 +38,7 @@
 
 - name: Use Jenkins Secret in Another Role
   debug:
-    msg: "Jenkins Secret = {{ hostvars['master']['jenkins_secret_value'] }}"
+    msg: "Jenkins Secret = {{ hostvars['master']['jenkins_slave_secret'] }}"
 
 - name: Create systemd service for Jenkins agent
   template:

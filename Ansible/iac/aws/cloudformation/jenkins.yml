@@ -59,29 +59,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${environment}-jenkins-master
-      # UserData:
-      #   Fn::Base64: !Sub |
-      #     #!/bin/bash
-
-      #     # Update package lists
-      #     sudo apt update
-
-      #     # Install required software
-      #     apt install -y software-properties-common git
-      #     add-apt-repository --yes --update ppa:ansible/ansible
-      #     apt install -y ansible
-
-      #     # Clone the git repository
-      #     git clone -b devOps/devOps#2547 https://git.impressicocrm.com/devOps/vansh_training.git
-
-      #     # Navigate to the repository directory
-      #     cd vansh_training/jenkins-ansible
-
-      #     # Run the Ansible playbook
-      #     ansible-playbook -i inventory.ini playbook.yml
-
-      #     # Print completion message
-      #     echo "Git repository cloned and Ansible playbook executed successfully"
+        - Key: Role
+          Value: !Sub master
 
   slaveInstance:
     Type: AWS::EC2::Instance
@@ -95,6 +74,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${environment}-jenkins-slave
+        - Key: Role
+          Value: !Sub slave
 
 Outputs:
   SecurityGroupId:

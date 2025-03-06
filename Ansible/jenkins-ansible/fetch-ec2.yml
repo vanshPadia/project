@@ -1,0 +1,51 @@
+- name: Fetch Master and Slave EC2 IPs
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Get EC2 Master Instance
+      amazon.aws.ec2_instance_info:
+        aws_access_key: "{{aws_key_id}}"
+        aws_secret_key: "{{aws_secret_key}}"
+        aws_session_token: "{{aws_token}}"
+        region: "ap-south-1"
+        filters:
+          "tag:Role": "master"
+      register: master_info
+
+    - name: Get EC2 Slave Instances
+      amazon.aws.ec2_instance_info:
+        aws_access_key: "{{aws_key_id}}"
+        aws_secret_key: "{{aws_secret_key}}"
+        aws_session_token: "{{aws_token}}"
+        region: "ap-south-1"
+        filters:
+          "tag:Role": "slave"
+      register: slave_info
+
+    - name: Fail if no Master Instance is found
+      fail:
+        msg: "No EC2 instance found with Role=master"
+      when: master_info.instances | length == 0
+
+    - name: Fail if no Slave Instances are found
+      fail:
+        msg: "No EC2 instances found with Role=slave"
+      when: slave_info.instances | length == 0
+
+    - name: Set Master and Slave Public IPs
+      set_fact:
+        master_ip: "{{ master_info.instances[0].public_ip_address }}"
+        slave_ips: "{{ slave_info.instances | map(attribute='public_ip_address') | list }}"
+
+    - name: Add Master to Inventory
+      lineinfile:
+        path: inventory.ini
+        line: "master ansible_host={{ master_ip }}"
+        insertafter: "\\[jenkins-master\\]"
+    - name: Add Slaves to Inventory
+      lineinfile:
+        path: inventory.ini
+        line: "slave ansible_host={{ item }}"
+        insertafter: "\\[jenkins-slave\\]"
+      loop: "{{ slave_ips }}"

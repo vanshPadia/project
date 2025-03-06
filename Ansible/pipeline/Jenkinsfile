@@ -1,3 +1,4 @@
+@Library('ansible-lib') _ 
 pipeline {
     agent any
 
@@ -10,10 +11,10 @@ pipeline {
         stage('Deploy EC2') {
             steps {
                 withFolderProperties {
-                    withAWS(credentials: 'AWS', region: AWS_REGION ) {
+                    withAWS(credentials: 'aws', region: AWS_REGION ) {
                         cfnUpdate(
                             stack: "${env.environment}-ansible",
-                            file: 'iac/aws/cloudformation/jenkins-m&s.yml',
+                            file: 'iac/aws/cloudformation/jenkins.yml',
                             params: [
                                 environment: env.environment,
                                 keyName:env.keyName                            
@@ -23,6 +24,14 @@ pipeline {
                     }
                 }
             }
-        }      
+        }
+        stage('Start Ansible') {
+            steps {
+                script{
+                    test()
+                }
+                timeoutInMinutes: 30
+            }
+        }              
     }
 }

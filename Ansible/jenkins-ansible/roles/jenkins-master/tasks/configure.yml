@@ -25,11 +25,11 @@
 
 - name: Install plugins using CLI method if jenkins_plugin module fails
   shell: >
-    java -jar /var/lib/jenkins/cli/jenkins-cli.jar
-    -s http://localhost:8080
-    -auth admin:"{{ jenkins_admin_initial_password.stdout }}"
+    java -jar {{ jenkins_home }}/cli/jenkins-cli.jar \
+    -s {{ jenkins_master_url }} \
+    -auth {{ jenkins_admin_username }}:{{ jenkins_admin_initial_password.stdout }} \
+    install-plugin "{{ item }}" -deploy
 
-    install-plugin {{ item }} -deploy
   with_items:
     - git
     - workflow-aggregator
